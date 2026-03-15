@@ -580,10 +580,11 @@ export class MemoryGraph {
    * support parameterized relationship types.
    */
   private _sanitizeRelationshipType(relationship: string): string {
-    if (!/^[a-z0-9_]+$/.test(relationship)) {
+    const normalized = relationship.toLowerCase().replace(/\s+/g, "_");
+    if (!/^[a-z0-9_]+$/.test(normalized)) {
       throw new Error(`Unsafe relationship type rejected: "${relationship}"`);
     }
-    return relationship;
+    return normalized;
   }
 
   private async _searchSourceNode(

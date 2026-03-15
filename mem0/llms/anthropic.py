@@ -69,7 +69,7 @@ class AnthropicLLM(LLMBase):
             else:
                 filtered_messages.append(message)
 
-        # Handle response_format for JSON output (same pattern as Ollama provider)
+        # Anthropic has no native JSON mode; inject instruction into the last user message
         if response_format and response_format.get("type") == "json_object" and not tools:
             if filtered_messages and filtered_messages[-1]["role"] == "user":
                 filtered_messages[-1] = {
@@ -159,4 +159,7 @@ class AnthropicLLM(LLMBase):
                         }
                     )
             return {"content": content, "tool_calls": tool_calls}
-        return response.content[0].text
+        first_block = response.content[0]
+        if first_block.type != "text":
+            raise ValueError(f"Unexpected response type from Anthropic API: {first_block.type}")
+        return first_block.text
