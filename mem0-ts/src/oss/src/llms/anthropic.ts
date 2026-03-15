@@ -19,20 +19,34 @@ export class AnthropicLLM implements LLM {
     messages: Message[],
     responseFormat?: { type: string },
     tools?: any[],
+    toolChoice: string = "auto",
   ): Promise<string | LLMResponse> {
     // Extract system message if present
     const systemMessage = messages.find((msg) => msg.role === "system");
-    const otherMessages = messages.filter((msg) => msg.role !== "system");
-
-    const params: Record<string, any> = {
-      model: this.model,
-      messages: otherMessages.map((msg) => ({
+    let mappedMessages = messages
+      .filter((msg) => msg.role !== "system")
+      .map((msg) => ({
         role: msg.role as "user" | "assistant",
         content:
           typeof msg.content === "string"
             ? msg.content
             : msg.content.image_url.url,
-      })),
+      }));
+
+    // Handle response_format for JSON output (same pattern as Ollama provider)
+    if (responseFormat?.type === "json_object" && !tools) {
+      const last = mappedMessages[mappedMessages.length - 1];
+      if (last && last.role === "user") {
+        mappedMessages = [
+          ...mappedMessages.slice(0, -1),
+          { ...last, content: last.content + "\n\nYou must respond with valid JSON only." },
+        ];
+      }
+    }
+
+    const params: Record<string, any> = {
+      model: this.model,
+      messages: mappedMessages,
       system:
         typeof systemMessage?.content === "string"
           ? systemMessage.content
@@ -42,7 +56,10 @@ export class AnthropicLLM implements LLM {
 
     if (tools) {
       params.tools = this._convertTools(tools);
-      params.tool_choice = { type: "auto" };
+      const mapped = this._mapToolChoice(toolChoice);
+      if (mapped !== null) {
+        params.tool_choice = mapped;
+      }
     }
 
     const response = await this.client.messages.create(params as any);
@@ -73,6 +90,13 @@ export class AnthropicLLM implements LLM {
     } else {
       throw new Error("Unexpected response type from Anthropic API");
     }
+  }
+
+  private _mapToolChoice(toolChoice: string): Record<string, string> | null {
+    if (toolChoice === "auto") return { type: "auto" };
+    if (toolChoice === "required") return { type: "any" };
+    if (toolChoice === "none") return null;
+    return { type: "tool", name: toolChoice };
   }
 
   private _convertTools(tools: any[]): any[] {

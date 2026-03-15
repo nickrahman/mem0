@@ -71,7 +71,17 @@ class AnthropicLLM(LLMBase):
             else:
                 filtered_messages.append(message)
 
+        # Handle response_format for JSON output (same pattern as Ollama provider)
+        if response_format and response_format.get("type") == "json_object" and not tools:
+            if filtered_messages and filtered_messages[-1]["role"] == "user":
+                filtered_messages[-1] = {
+                    **filtered_messages[-1],
+                    "content": filtered_messages[-1]["content"] + "\n\nYou must respond with valid JSON only.",
+                }
+
         params = self._get_supported_params(messages=messages, **kwargs)
+        # Anthropic rejects requests containing both temperature and top_p
+        params.pop("top_p", None)
         params.update(
             {
                 "model": self.config.model,
@@ -82,10 +92,27 @@ class AnthropicLLM(LLMBase):
 
         if tools:
             params["tools"] = self._convert_tools(tools)
-            params["tool_choice"] = {"type": tool_choice}
+            mapped = self._map_tool_choice(tool_choice)
+            if mapped is not None:
+                params["tool_choice"] = mapped
 
         response = self.client.messages.create(**params)
         return self._parse_response(response, tools)
+
+    @staticmethod
+    def _map_tool_choice(tool_choice):
+        """Map OpenAI-style tool_choice values to Anthropic format.
+
+        Returns ``None`` for ``"none"`` so the caller can omit the parameter.
+        """
+        if tool_choice == "auto":
+            return {"type": "auto"}
+        if tool_choice == "required":
+            return {"type": "any"}
+        if tool_choice == "none":
+            return None
+        # Specific tool name
+        return {"type": "tool", "name": tool_choice}
 
     @staticmethod
     def _convert_tools(tools):

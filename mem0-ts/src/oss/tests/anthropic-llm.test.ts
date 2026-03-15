@@ -135,4 +135,83 @@ describe("AnthropicLLM", () => {
     ]);
     expect(callArgs.tool_choice).toEqual({ type: "auto" });
   });
+
+  it("maps tool_choice required to any", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "" }],
+    });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+    await llm.generateResponse(MESSAGES, undefined, TOOLS, "required");
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.tool_choice).toEqual({ type: "any" });
+  });
+
+  it("omits tool_choice when none", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "" }],
+    });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+    await llm.generateResponse(MESSAGES, undefined, TOOLS, "none");
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.tool_choice).toBeUndefined();
+  });
+
+  it("maps tool_choice to specific tool name", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "" }],
+    });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+    await llm.generateResponse(MESSAGES, undefined, TOOLS, "extract_entities");
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    expect(callArgs.tool_choice).toEqual({ type: "tool", name: "extract_entities" });
+  });
+
+  it("appends JSON instruction when response_format is json_object", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: '{"result": "ok"}' }],
+    });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+    await llm.generateResponse(MESSAGES, { type: "json_object" });
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    const lastMsg = callArgs.messages[callArgs.messages.length - 1];
+    expect(lastMsg.content).toContain("You must respond with valid JSON only.");
+    // Original messages should not be mutated
+    expect(MESSAGES[1].content).toBe("Extract entities from: Alice likes pizza");
+  });
+
+  it("does not append JSON instruction when tools are provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: "text", text: "" }],
+    });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+    await llm.generateResponse(MESSAGES, { type: "json_object" }, TOOLS);
+
+    const callArgs = mockCreate.mock.calls[0][0];
+    const lastMsg = callArgs.messages[callArgs.messages.length - 1];
+    expect(lastMsg.content).not.toContain("You must respond with valid JSON only.");
+  });
 });

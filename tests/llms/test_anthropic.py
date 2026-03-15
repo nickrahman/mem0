@@ -158,3 +158,135 @@ def test_tool_format_conversion(mock_anthropic_client):
 
     passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
     assert passed_tool_choice == {"type": "auto"}
+
+
+def test_tool_choice_required_maps_to_any(mock_anthropic_client):
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "my_tool",
+                "description": "A tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = ""
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages, tools=tools, tool_choice="required")
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
+    assert passed_tool_choice == {"type": "any"}
+
+
+def test_tool_choice_none_omits_param(mock_anthropic_client):
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "my_tool",
+                "description": "A tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = ""
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages, tools=tools, tool_choice="none")
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    assert "tool_choice" not in all_kwargs
+
+
+def test_tool_choice_specific_tool(mock_anthropic_client):
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "my_tool",
+                "description": "A tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = ""
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages, tools=tools, tool_choice="my_tool")
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
+    assert passed_tool_choice == {"type": "tool", "name": "my_tool"}
+
+
+def test_top_p_not_sent(mock_anthropic_client):
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9)
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = "response"
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages)
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    assert "top_p" not in all_kwargs
+
+
+def test_response_format_json_appends_instruction(mock_anthropic_client):
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Extract data"},
+    ]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = '{"result": "ok"}'
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages, response_format={"type": "json_object"})
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    passed_messages = all_kwargs["messages"]
+    last_msg = passed_messages[-1]
+    assert last_msg["content"].endswith("\n\nYou must respond with valid JSON only.")
+    # Original message should not be mutated
+    assert messages[-1]["content"] == "Extract data"
