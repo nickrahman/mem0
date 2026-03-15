@@ -2,6 +2,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+anthropic = pytest.importorskip("anthropic", reason="anthropic package not installed")
+
 from mem0.configs.llms.anthropic import AnthropicConfig
 from mem0.llms.anthropic import AnthropicLLM
 
