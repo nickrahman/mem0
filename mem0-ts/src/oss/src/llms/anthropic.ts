@@ -44,13 +44,13 @@ export class AnthropicLLM implements LLM {
       }
     }
 
+    const systemContent =
+      typeof systemMessage?.content === "string" ? systemMessage.content : undefined;
+
     const params: Record<string, any> = {
       model: this.model,
       messages: mappedMessages,
-      system:
-        typeof systemMessage?.content === "string"
-          ? systemMessage.content
-          : undefined,
+      system: systemContent,
       max_tokens: 4096,
     };
 

@@ -23,15 +23,6 @@ interface SearchOutput {
   similarity: number;
 }
 
-interface ToolCall {
-  name: string;
-  arguments: string;
-}
-
-interface LLMResponse {
-  toolCalls?: ToolCall[];
-}
-
 interface Tool {
   type: string;
   function: {
@@ -79,13 +70,8 @@ export class MemoryGraph {
       this.config.embedder.config,
     );
 
-    this.llmProvider = "openai";
-    if (this.config.llm?.provider) {
-      this.llmProvider = this.config.llm.provider;
-    }
-    if (this.config.graphStore?.llm?.provider) {
-      this.llmProvider = this.config.graphStore.llm.provider;
-    }
+    this.llmProvider =
+      this.config.graphStore?.llm?.provider ?? this.config.llm?.provider ?? "openai";
 
     this.llm = LLMFactory.create(this.llmProvider, this.config.llm.config);
     this.threshold = 0.7;
@@ -290,8 +276,12 @@ export class MemoryGraph {
     if (typeof extractedEntities !== "string" && extractedEntities.toolCalls) {
       const toolCall = extractedEntities.toolCalls[0];
       if (toolCall && toolCall.arguments) {
-        const args = JSON.parse(toolCall.arguments);
-        entities = args.entities || [];
+        try {
+          const args = JSON.parse(toolCall.arguments);
+          entities = args.entities || [];
+        } catch (e) {
+          logger.error(`Failed to parse relation tool arguments: ${e}`);
+        }
       }
     }
 
@@ -394,7 +384,11 @@ export class MemoryGraph {
     if (typeof memoryUpdates !== "string" && memoryUpdates.toolCalls) {
       for (const item of memoryUpdates.toolCalls) {
         if (item.name === "delete_graph_memory") {
-          toBeDeleted.push(JSON.parse(item.arguments));
+          try {
+            toBeDeleted.push(JSON.parse(item.arguments));
+          } catch (e) {
+            logger.error(`Failed to parse delete tool arguments: ${e}`);
+          }
         }
       }
     }
@@ -412,7 +406,8 @@ export class MemoryGraph {
 
     try {
       for (const item of toBeDeleted) {
-        const { source, destination, relationship } = item;
+        const { source, destination } = item;
+        const relationship = this._sanitizeRelationshipType(item.relationship);
 
         const cypher = `
           MATCH (n {name: $source_name, user_id: $user_id})
@@ -450,7 +445,8 @@ export class MemoryGraph {
 
     try {
       for (const item of toBeAdded) {
-        const { source, destination, relationship } = item;
+        const { source, destination } = item;
+        const relationship = this._sanitizeRelationshipType(item.relationship);
         const sourceType = entityTypeMap[source] || "unknown";
         const destinationType = entityTypeMap[destination] || "unknown";
 
@@ -575,6 +571,19 @@ export class MemoryGraph {
       relationship: item.relationship.toLowerCase().replace(/ /g, "_"),
       destination: item.destination.toLowerCase().replace(/ /g, "_"),
     }));
+  }
+
+  /**
+   * Validate that a relationship type contains only characters safe for Cypher
+   * interpolation (alphanumerics and underscores). LLM-controlled values must
+   * be validated before being embedded in query strings because Neo4j does not
+   * support parameterized relationship types.
+   */
+  private _sanitizeRelationshipType(relationship: string): string {
+    if (!/^[a-z0-9_]+$/.test(relationship)) {
+      throw new Error(`Unsafe relationship type rejected: "${relationship}"`);
+    }
+    return relationship;
   }
 
   private async _searchSourceNode(

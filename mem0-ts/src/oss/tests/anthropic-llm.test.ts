@@ -214,4 +214,41 @@ describe("AnthropicLLM", () => {
     const lastMsg = callArgs.messages[callArgs.messages.length - 1];
     expect(lastMsg.content).not.toContain("You must respond with valid JSON only.");
   });
+
+  it("throws when Anthropic returns empty content array", async () => {
+    mockCreate.mockResolvedValueOnce({ content: [] });
+
+    const llm = new AnthropicLLM({
+      apiKey: "test-key",
+      model: "claude-3-sonnet-20240229",
+    });
+
+    await expect(llm.generateResponse(MESSAGES)).rejects.toThrow(
+      "Empty response from Anthropic API",
+    );
+  });
+
+  it("throws when a tool is missing the function key", () => {
+    const llm = new AnthropicLLM({ apiKey: "test-key" });
+    const badTools = [{ type: "function" }] as any[];
+
+    // _convertTools is private; exercise it through generateResponse path would
+    // require a mock — test via the public interface instead.
+    mockCreate.mockImplementation(() => {
+      throw new Error("should not reach API");
+    });
+
+    expect(() => (llm as any)._convertTools(badTools)).toThrow(
+      "missing required key 'function'",
+    );
+  });
+
+  it("throws when a tool function is missing name/description/parameters", () => {
+    const llm = new AnthropicLLM({ apiKey: "test-key" });
+    const badTools = [{ type: "function", function: { name: "x" } }] as any[];
+
+    expect(() => (llm as any)._convertTools(badTools)).toThrow(
+      "missing required function keys",
+    );
+  });
 });
