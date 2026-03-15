@@ -13,7 +13,6 @@ from mem0.llms.base import LLMBase
 
 class AnthropicLLM(LLMBase):
     def __init__(self, config: Optional[Union[BaseLlmConfig, AnthropicConfig, Dict]] = None):
-        # Convert to AnthropicConfig if needed
         if config is None:
             config = AnthropicConfig()
         elif isinstance(config, dict):
@@ -62,7 +61,6 @@ class AnthropicLLM(LLMBase):
             str: The generated text response when no tools are provided.
             dict: A dict with keys ``content`` (str) and ``tool_calls`` (list) when tools are provided.
         """
-        # Separate system message from other messages
         system_message = ""
         filtered_messages = []
         for message in messages:
@@ -79,10 +77,10 @@ class AnthropicLLM(LLMBase):
                     "content": filtered_messages[-1]["content"] + "\n\nYou must respond with valid JSON only.",
                 }
 
-        # Do not pass messages here; filtered_messages (sans system) is set below.
         params = self._get_supported_params(**kwargs)
-        # Anthropic rejects requests that include both temperature and top_p
-        if "temperature" in params and "top_p" in params:
+        # Anthropic rejects requests containing both temperature and top_p;
+        # drop top_p since the config always provides a temperature default.
+        if "top_p" in params:
             params.pop("top_p")
         params.update(
             {
@@ -144,6 +142,9 @@ class AnthropicLLM(LLMBase):
     @staticmethod
     def _parse_response(response, tools):
         """Parse Anthropic response, extracting tool calls when tools were provided."""
+        if not response.content:
+            raise ValueError("Empty response from Anthropic API")
+
         if tools:
             content = ""
             tool_calls = []
@@ -158,6 +159,4 @@ class AnthropicLLM(LLMBase):
                         }
                     )
             return {"content": content, "tool_calls": tool_calls}
-        if not response.content:
-            raise ValueError("Empty response from Anthropic API")
         return response.content[0].text

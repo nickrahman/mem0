@@ -14,6 +14,12 @@ def mock_anthropic_client():
         yield mock_client
 
 
+def _get_call_kwargs(mock_client):
+    """Return the keyword arguments passed to messages.create."""
+    call_kwargs = mock_client.messages.create.call_args
+    return call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+
+
 def test_generate_response_without_tools(mock_anthropic_client):
     config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
     llm = AnthropicLLM(config)
@@ -143,11 +149,10 @@ def test_tool_format_conversion(mock_anthropic_client):
 
     llm.generate_response(messages, tools=tools)
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    passed_tools = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools")
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
 
-    assert len(passed_tools) == 1
-    assert passed_tools[0] == {
+    assert len(all_kwargs["tools"]) == 1
+    assert all_kwargs["tools"][0] == {
         "name": "my_tool",
         "description": "My tool description",
         "input_schema": {
@@ -155,9 +160,7 @@ def test_tool_format_conversion(mock_anthropic_client):
             "properties": {"arg1": {"type": "string"}},
         },
     }
-
-    passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
-    assert passed_tool_choice == {"type": "auto"}
+    assert all_kwargs["tool_choice"] == {"type": "auto"}
 
 
 def test_tool_choice_required_maps_to_any(mock_anthropic_client):
@@ -184,9 +187,8 @@ def test_tool_choice_required_maps_to_any(mock_anthropic_client):
 
     llm.generate_response(messages, tools=tools, tool_choice="required")
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
-    assert passed_tool_choice == {"type": "any"}
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
+    assert all_kwargs["tool_choice"] == {"type": "any"}
 
 
 def test_tool_choice_none_omits_param(mock_anthropic_client):
@@ -213,8 +215,7 @@ def test_tool_choice_none_omits_param(mock_anthropic_client):
 
     llm.generate_response(messages, tools=tools, tool_choice="none")
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
     assert "tool_choice" not in all_kwargs
 
 
@@ -242,34 +243,12 @@ def test_tool_choice_specific_tool(mock_anthropic_client):
 
     llm.generate_response(messages, tools=tools, tool_choice="my_tool")
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    passed_tool_choice = call_kwargs.kwargs.get("tool_choice") or call_kwargs[1].get("tool_choice")
-    assert passed_tool_choice == {"type": "tool", "name": "my_tool"}
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
+    assert all_kwargs["tool_choice"] == {"type": "tool", "name": "my_tool"}
 
 
-def test_top_p_dropped_when_temperature_also_present(mock_anthropic_client):
-    """Anthropic rejects requests with both temperature and top_p; top_p is dropped in that case."""
-    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9, temperature=0.7)
-    llm = AnthropicLLM(config)
-    messages = [{"role": "user", "content": "test"}]
-
-    mock_text_block = Mock()
-    mock_text_block.type = "text"
-    mock_text_block.text = "response"
-    mock_response = Mock()
-    mock_response.content = [mock_text_block]
-    mock_anthropic_client.messages.create.return_value = mock_response
-
-    llm.generate_response(messages)
-
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
-    assert "top_p" not in all_kwargs
-    assert "temperature" in all_kwargs
-
-
-def test_top_p_sent_when_temperature_absent(mock_anthropic_client):
-    """When only top_p is configured (no temperature), it should be forwarded to the API."""
+def test_top_p_not_sent(mock_anthropic_client):
+    """Anthropic rejects requests with both temperature and top_p; top_p is always dropped."""
     config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9)
     llm = AnthropicLLM(config)
     messages = [{"role": "user", "content": "test"}]
@@ -283,10 +262,8 @@ def test_top_p_sent_when_temperature_absent(mock_anthropic_client):
 
     llm.generate_response(messages)
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
-    assert all_kwargs.get("top_p") == 0.9
-    assert "temperature" not in all_kwargs
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
+    assert "top_p" not in all_kwargs
 
 
 def test_response_format_json_appends_instruction(mock_anthropic_client):
@@ -306,10 +283,8 @@ def test_response_format_json_appends_instruction(mock_anthropic_client):
 
     llm.generate_response(messages, response_format={"type": "json_object"})
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
-    passed_messages = all_kwargs["messages"]
-    last_msg = passed_messages[-1]
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
+    last_msg = all_kwargs["messages"][-1]
     assert last_msg["content"].endswith("\n\nYou must respond with valid JSON only.")
     # Original message should not be mutated
     assert messages[-1]["content"] == "Extract data"
@@ -366,8 +341,6 @@ def test_response_format_suppressed_when_tools_provided(mock_anthropic_client):
 
     llm.generate_response(messages, response_format={"type": "json_object"}, tools=tools)
 
-    call_kwargs = mock_anthropic_client.messages.create.call_args
-    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
-    passed_messages = all_kwargs["messages"]
-    last_msg = passed_messages[-1]
+    all_kwargs = _get_call_kwargs(mock_anthropic_client)
+    last_msg = all_kwargs["messages"][-1]
     assert "You must respond with valid JSON only." not in last_msg["content"]

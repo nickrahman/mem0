@@ -21,7 +21,6 @@ export class AnthropicLLM implements LLM {
     tools?: any[],
     toolChoice: string = "auto",
   ): Promise<string | LLMResponse> {
-    // Extract system message if present
     const systemMessage = messages.find((msg) => msg.role === "system");
     let mappedMessages = messages
       .filter((msg) => msg.role !== "system")
@@ -33,7 +32,6 @@ export class AnthropicLLM implements LLM {
             : msg.content.image_url.url,
       }));
 
-    // Handle response_format for JSON output (same pattern as Ollama provider)
     if (responseFormat?.type === "json_object" && !tools) {
       const last = mappedMessages[mappedMessages.length - 1];
       if (last && last.role === "user") {
@@ -81,15 +79,13 @@ export class AnthropicLLM implements LLM {
     }
 
     const firstBlock = response.content[0];
-    // Guard against empty content array before accessing type
     if (!firstBlock) {
       throw new Error("Empty response from Anthropic API");
     }
     if (firstBlock.type === "text") {
       return firstBlock.text;
-    } else {
-      throw new Error("Unexpected response type from Anthropic API");
     }
+    throw new Error("Unexpected response type from Anthropic API");
   }
 
   private _mapToolChoice(toolChoice: string): Record<string, string> | null {
@@ -117,9 +113,11 @@ export class AnthropicLLM implements LLM {
 
   async generateChat(messages: Message[]): Promise<LLMResponse> {
     const response = await this.generateResponse(messages);
+    if (typeof response !== "string") {
+      throw new Error("generateChat received a non-string response; use generateResponse with tools instead");
+    }
     return {
-      // generateResponse returns string when called without tools
-      content: response as string,
+      content: response,
       role: "assistant",
     };
   }

@@ -42,8 +42,11 @@ const MESSAGES = [
   { role: "user" as const, content: "Extract entities from: Alice likes pizza" },
 ];
 
+let llm: AnthropicLLM;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  llm = new AnthropicLLM({ apiKey: "test-key", model: "claude-3-sonnet-20240229" });
 });
 
 describe("AnthropicLLM", () => {
@@ -52,10 +55,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "Hello there!" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     const result = await llm.generateResponse(MESSAGES);
 
     expect(result).toBe("Hello there!");
@@ -75,10 +74,6 @@ describe("AnthropicLLM", () => {
       ],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     const result = await llm.generateResponse(MESSAGES, undefined, TOOLS);
 
     expect(typeof result).toBe("object");
@@ -98,10 +93,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "No tools needed." }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     const result = await llm.generateResponse(MESSAGES, undefined, TOOLS);
 
     expect(typeof result).toBe("object");
@@ -114,10 +105,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, undefined, TOOLS);
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -141,10 +128,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, undefined, TOOLS, "required");
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -156,10 +139,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, undefined, TOOLS, "none");
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -171,10 +150,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, undefined, TOOLS, "extract_entities");
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -186,10 +161,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: '{"result": "ok"}' }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, { type: "json_object" });
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -204,10 +175,6 @@ describe("AnthropicLLM", () => {
       content: [{ type: "text", text: "" }],
     });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
     await llm.generateResponse(MESSAGES, { type: "json_object" }, TOOLS);
 
     const callArgs = mockCreate.mock.calls[0][0];
@@ -218,25 +185,13 @@ describe("AnthropicLLM", () => {
   it("throws when Anthropic returns empty content array", async () => {
     mockCreate.mockResolvedValueOnce({ content: [] });
 
-    const llm = new AnthropicLLM({
-      apiKey: "test-key",
-      model: "claude-3-sonnet-20240229",
-    });
-
     await expect(llm.generateResponse(MESSAGES)).rejects.toThrow(
       "Empty response from Anthropic API",
     );
   });
 
   it("throws when a tool is missing the function key", () => {
-    const llm = new AnthropicLLM({ apiKey: "test-key" });
     const badTools = [{ type: "function" }] as any[];
-
-    // _convertTools is private; exercise it through generateResponse path would
-    // require a mock — test via the public interface instead.
-    mockCreate.mockImplementation(() => {
-      throw new Error("should not reach API");
-    });
 
     expect(() => (llm as any)._convertTools(badTools)).toThrow(
       "missing required key 'function'",
@@ -244,7 +199,6 @@ describe("AnthropicLLM", () => {
   });
 
   it("throws when a tool function is missing name/description/parameters", () => {
-    const llm = new AnthropicLLM({ apiKey: "test-key" });
     const badTools = [{ type: "function", function: { name: "x" } }] as any[];
 
     expect(() => (llm as any)._convertTools(badTools)).toThrow(
