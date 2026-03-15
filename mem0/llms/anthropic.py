@@ -19,7 +19,6 @@ class AnthropicLLM(LLMBase):
         elif isinstance(config, dict):
             config = AnthropicConfig(**config)
         elif isinstance(config, BaseLlmConfig) and not isinstance(config, AnthropicConfig):
-            # Convert BaseLlmConfig to AnthropicConfig
             config = AnthropicConfig(
                 model=config.model,
                 temperature=config.temperature,
@@ -53,7 +52,8 @@ class AnthropicLLM(LLMBase):
 
         Args:
             messages (list): List of message dicts containing 'role' and 'content'.
-            response_format (optional): Unused; reserved for interface compatibility. Defaults to None.
+            response_format (optional): When ``{"type": "json_object"}``, appends a JSON instruction
+                to the last user message (suppressed when ``tools`` is provided). Defaults to None.
             tools (list, optional): List of tools that the model can call. Defaults to None.
             tool_choice (str, optional): Tool choice method. Defaults to "auto".
             **kwargs: Additional Anthropic-specific parameters.
@@ -79,9 +79,11 @@ class AnthropicLLM(LLMBase):
                     "content": filtered_messages[-1]["content"] + "\n\nYou must respond with valid JSON only.",
                 }
 
-        params = self._get_supported_params(messages=messages, **kwargs)
-        # Anthropic rejects requests containing both temperature and top_p
-        params.pop("top_p", None)
+        # Do not pass messages here; filtered_messages (sans system) is set below.
+        params = self._get_supported_params(**kwargs)
+        # Anthropic rejects requests that include both temperature and top_p
+        if "temperature" in params and "top_p" in params:
+            params.pop("top_p")
         params.update(
             {
                 "model": self.config.model,
@@ -156,4 +158,6 @@ class AnthropicLLM(LLMBase):
                         }
                     )
             return {"content": content, "tool_calls": tool_calls}
+        if not response.content:
+            raise ValueError("Empty response from Anthropic API")
         return response.content[0].text

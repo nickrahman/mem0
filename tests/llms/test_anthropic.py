@@ -247,8 +247,9 @@ def test_tool_choice_specific_tool(mock_anthropic_client):
     assert passed_tool_choice == {"type": "tool", "name": "my_tool"}
 
 
-def test_top_p_not_sent(mock_anthropic_client):
-    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9)
+def test_top_p_dropped_when_temperature_also_present(mock_anthropic_client):
+    """Anthropic rejects requests with both temperature and top_p; top_p is dropped in that case."""
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9, temperature=0.7)
     llm = AnthropicLLM(config)
     messages = [{"role": "user", "content": "test"}]
 
@@ -264,6 +265,28 @@ def test_top_p_not_sent(mock_anthropic_client):
     call_kwargs = mock_anthropic_client.messages.create.call_args
     all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
     assert "top_p" not in all_kwargs
+    assert "temperature" in all_kwargs
+
+
+def test_top_p_sent_when_temperature_absent(mock_anthropic_client):
+    """When only top_p is configured (no temperature), it should be forwarded to the API."""
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key", top_p=0.9)
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = "response"
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages)
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    assert all_kwargs.get("top_p") == 0.9
+    assert "temperature" not in all_kwargs
 
 
 def test_response_format_json_appends_instruction(mock_anthropic_client):
@@ -290,3 +313,61 @@ def test_response_format_json_appends_instruction(mock_anthropic_client):
     assert last_msg["content"].endswith("\n\nYou must respond with valid JSON only.")
     # Original message should not be mutated
     assert messages[-1]["content"] == "Extract data"
+
+
+def test_parse_response_raises_on_empty_content(mock_anthropic_client):
+    """_parse_response must raise ValueError rather than IndexError when content is empty."""
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "test"}]
+
+    mock_response = Mock()
+    mock_response.content = []
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    with pytest.raises(ValueError, match="Empty response from Anthropic API"):
+        llm.generate_response(messages)
+
+
+def test_convert_tools_raises_on_missing_function_key():
+    """_convert_tools must raise ValueError when the 'function' key is absent."""
+    with pytest.raises(ValueError, match="missing required key 'function'"):
+        AnthropicLLM._convert_tools([{"type": "function"}])
+
+
+def test_convert_tools_raises_on_missing_function_fields():
+    """_convert_tools must raise ValueError when name/description/parameters are absent."""
+    with pytest.raises(ValueError, match="missing required function key"):
+        AnthropicLLM._convert_tools([{"type": "function", "function": {"name": "x"}}])
+
+
+def test_response_format_suppressed_when_tools_provided(mock_anthropic_client):
+    """response_format JSON instruction must not be appended when tools are present."""
+    config = AnthropicConfig(model="claude-3-5-sonnet-20240620", api_key="test-key")
+    llm = AnthropicLLM(config)
+    messages = [{"role": "user", "content": "Extract data"}]
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "my_tool",
+                "description": "A tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    mock_text_block = Mock()
+    mock_text_block.type = "text"
+    mock_text_block.text = ""
+    mock_response = Mock()
+    mock_response.content = [mock_text_block]
+    mock_anthropic_client.messages.create.return_value = mock_response
+
+    llm.generate_response(messages, response_format={"type": "json_object"}, tools=tools)
+
+    call_kwargs = mock_anthropic_client.messages.create.call_args
+    all_kwargs = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+    passed_messages = all_kwargs["messages"]
+    last_msg = passed_messages[-1]
+    assert "You must respond with valid JSON only." not in last_msg["content"]
