@@ -58,6 +58,7 @@ vector_stores = [
     "langchain-aws>=0.2.23",
 ]
 llms = [
+    "anthropic>=0.49.0",
     "groq>=0.3.0",
     "together>=0.2.10",
     "litellm>=1.74.0",
